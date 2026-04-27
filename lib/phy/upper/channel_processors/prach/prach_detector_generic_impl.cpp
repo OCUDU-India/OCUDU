@@ -20,8 +20,14 @@
 #include "ocudu/ran/prach/prach_cyclic_shifts.h"
 #include "ocudu/ran/prach/prach_preamble_information.h"
 #include "ocudu/support/math/math_utils.h"
+#include "fmt/format.h"
+#include <chrono>
 
 using namespace ocudu;
+
+namespace {
+constexpr unsigned long long LOG_STATS_EVERY = 1000;
+} // namespace
 
 error_type<std::string> prach_detector_validator_impl::is_valid(const prach_detector::configuration& config) const
 {
@@ -55,10 +61,46 @@ prach_detector_generic_impl::prach_detector_generic_impl(std::unique_ptr<dft_pro
                "IDFT size for short preambles (i.e., {}) must be in range {}.",
                idft_short->get_size(),
                idft_long_sz_range);
+
+  fmt::print(stderr,
+             "[prach_detector_cpu] constructed: idft_long={} idft_short={}\n",
+             idft_long->get_size(),
+             idft_short->get_size());
+}
+
+static void record_cpu_detect_stats(unsigned long long&                   total_detects,
+                                    unsigned long long&                   sum_detect_ns,
+                                    unsigned long long&                   max_detect_ns,
+                                    unsigned long long&                   min_detect_ns,
+                                    std::chrono::steady_clock::time_point start)
+{
+  auto ns = static_cast<unsigned long long>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count());
+  ++total_detects;
+  sum_detect_ns += ns;
+  if (ns > max_detect_ns) {
+    max_detect_ns = ns;
+  }
+  if (min_detect_ns == 0 || ns < min_detect_ns) {
+    min_detect_ns = ns;
+  }
+  if ((total_detects % LOG_STATS_EVERY) == 0) {
+    fmt::print(stderr,
+               "[prach_detector_cpu] stats: detects={} mean={}us min={}us max={}us (last_window={})\n",
+               total_detects,
+               (sum_detect_ns / LOG_STATS_EVERY) / 1000,
+               min_detect_ns / 1000,
+               max_detect_ns / 1000,
+               LOG_STATS_EVERY);
+    sum_detect_ns = 0;
+    max_detect_ns = 0;
+    min_detect_ns = 0;
+  }
 }
 
 prach_detection_result prach_detector_generic_impl::detect(const prach_buffer& input, const configuration& config)
 {
+  auto detect_t0 = std::chrono::steady_clock::now();
   ocudu_assert(config.start_preamble_index + config.nof_preamble_indices <= prach_constants::MAX_NUM_PREAMBLES,
                "The start preamble index (i.e., {}) and the number of preambles to detect (i.e., {}), exceed the "
                "maximum of 64.",
@@ -171,6 +213,7 @@ prach_detection_result prach_detector_generic_impl::detect(const prach_buffer& i
 
   // Early stop if the RSSI is zero.
   if (!std::isnormal(rssi)) {
+    record_cpu_detect_stats(total_detects, sum_detect_ns, max_detect_ns, min_detect_ns, detect_t0);
     return result;
   }
 
@@ -338,5 +381,6 @@ prach_detection_result prach_detector_generic_impl::detect(const prach_buffer& i
     }
   }
 
+  record_cpu_detect_stats(total_detects, sum_detect_ns, max_detect_ns, min_detect_ns, detect_t0);
   return result;
 }

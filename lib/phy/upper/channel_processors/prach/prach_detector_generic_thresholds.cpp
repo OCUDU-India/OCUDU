@@ -98,37 +98,48 @@ public:
               [](const threshold_entry& a, const threshold_entry& b) { return (a.configuration < b.configuration); });
   }
 
-  /// Retrieves the (threshold, margin) pair corresponding to the given configuration.
   threshold_and_margin_type get(const threshold_params& params) const
   {
-    auto it =
-        std::lower_bound(sorted_thresholds_and_margins.begin(),
-                         sorted_thresholds_and_margins.end(),
-                         params,
-                         [](const threshold_entry& a, const threshold_params& b) { return (a.configuration < b); });
+    threshold_params probe = params;
+    while (true) {
+      auto it = std::lower_bound(
+          sorted_thresholds_and_margins.begin(),
+          sorted_thresholds_and_margins.end(),
+          probe,
+          [](const threshold_entry& a, const threshold_params& b) { return (a.configuration < b); });
 
-    if (it != sorted_thresholds_and_margins.end()) {
-      return it->threshold_and_margin;
+      if ((it != sorted_thresholds_and_margins.end()) && (it->configuration == probe)) {
+        return it->threshold_and_margin;
+      }
+      if (probe.nof_rx_ports <= 1) {
+        break;
+      }
+      probe.nof_rx_ports = probe.nof_rx_ports / 2;
     }
 
-    // todo(david): once all cases are covered, replace this by a ocudu_assert.
     if (is_long_preamble(params.format)) {
-      return {/* threshold */ 2.0F, /* combine symbols */ false, /* margin */ 5};
+      return {2.0F, false, 5};
     }
-    return {/* threshold */ 0.3F, /* combine symbols */ false, /* margin */ 12};
+    return {0.3F, false, 12};
   }
 
-  /// Checks the quality flag of the threshold for the given configurations.
   threshold_flag check_flag(const threshold_params& params) const
   {
-    auto it =
-        std::lower_bound(sorted_thresholds_and_margins.begin(),
-                         sorted_thresholds_and_margins.end(),
-                         params,
-                         [](const threshold_entry& a, const threshold_params& b) { return (a.configuration < b); });
+    threshold_params probe = params;
+    while (true) {
+      auto it = std::lower_bound(
+          sorted_thresholds_and_margins.begin(),
+          sorted_thresholds_and_margins.end(),
+          probe,
+          [](const threshold_entry& a, const threshold_params& b) { return (a.configuration < b); });
 
-    if ((it != sorted_thresholds_and_margins.end()) && (it->configuration == params)) {
-      return it->flag;
+      if ((it != sorted_thresholds_and_margins.end()) && (it->configuration == probe)) {
+        return (probe.nof_rx_ports == params.nof_rx_ports) ? it->flag : threshold_flag::orange;
+      }
+      if (probe.nof_rx_ports <= 1) {
+        break;
+      }
+      probe.nof_rx_ports = probe.nof_rx_ports / 2;
     }
     return threshold_flag::red;
   }

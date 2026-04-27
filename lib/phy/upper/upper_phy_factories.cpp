@@ -25,6 +25,8 @@
 #include "ocudu/phy/upper/signal_processors/srs/srs_estimator_factory.h"
 #include "ocudu/support/error_handling.h"
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 
 using namespace ocudu;
 
@@ -596,8 +598,22 @@ create_ul_processor_factory(const upper_phy_factory_configuration& config,
   std::shared_ptr<prach_generator_factory> prach_gen_factory = create_prach_generator_factory_sw();
   report_fatal_error_if_not(prach_gen_factory, "Invalid PRACH generator factory.");
 
-  std::shared_ptr<prach_detector_factory> prach_factory =
-      create_prach_detector_factory_sw(dft_factory, prach_gen_factory);
+  std::shared_ptr<prach_detector_factory> prach_factory;
+  if (const char* backend = std::getenv("OCUDU_PRACH_DFT_BACKEND")) {
+    if (std::strcmp(backend, "gpu_full") == 0) {
+      prach_factory = create_prach_detector_factory_gpu(dft_factory, prach_gen_factory);
+      if (prach_factory) {
+        fmt::print("PRACH DFT backend: gpu_full (CUDA-shell detector)\n");
+      } else {
+        fmt::print("OCUDU_PRACH_DFT_BACKEND=gpu_full but GPU detector unavailable, falling back\n");
+      }
+    } else {
+      fmt::print("OCUDU_PRACH_DFT_BACKEND='{}' not recognised, falling back to default\n", backend);
+    }
+  }
+  if (!prach_factory) {
+    prach_factory = create_prach_detector_factory_sw(dft_factory, prach_gen_factory);
+  }
   report_fatal_error_if_not(prach_factory, "Invalid PRACH detector factory.");
 
   // Create PRACH detector pool factory if more than one thread is used.

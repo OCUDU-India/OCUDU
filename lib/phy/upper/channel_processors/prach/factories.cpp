@@ -9,6 +9,11 @@
 #include "ocudu/phy/support/support_formatters.h"
 #include "ocudu/phy/upper/channel_processors/prach/formatters.h"
 
+#ifdef HAVE_DFT_GPU
+#include "prach_detector_gpu_impl.h"
+#include "fmt/format.h"
+#endif
+
 using namespace ocudu;
 
 namespace {
@@ -115,6 +120,66 @@ ocudu::create_prach_detector_pool_factory(std::shared_ptr<prach_detector_factory
                                           unsigned                                nof_concurrent_threads)
 {
   return std::make_shared<prach_detector_pool_factory>(std::move(factory), nof_concurrent_threads);
+}
+
+#ifdef HAVE_DFT_GPU
+namespace {
+
+class prach_detector_gpu_factory_impl : public prach_detector_factory
+{
+public:
+  prach_detector_gpu_factory_impl(std::shared_ptr<prach_detector_factory>        inner_,
+                                  std::shared_ptr<prach_generator_factory>       gen_factory_,
+                                  const prach_detector_factory_sw_configuration& config_) :
+    inner_factory(std::move(inner_)), gen_factory(std::move(gen_factory_)), config(config_)
+  {
+    ocudu_assert(inner_factory, "prach_detector_gpu_factory_impl: inner factory must not be null.");
+    ocudu_assert(gen_factory, "prach_detector_gpu_factory_impl: generator factory must not be null.");
+  }
+
+  std::unique_ptr<prach_detector> create() override
+  {
+    auto fallback = inner_factory->create();
+    fmt::print(stderr, "[prach_detector_gpu_factory] (above CPU instance is a gpu_full inner-fallback, idle in normal operation)\n");
+    auto generator = gen_factory->create();
+    return ocudu::create_prach_detector_gpu(std::move(generator),
+                                            std::move(fallback),
+                                            config.idft_long_size,
+                                            config.idft_short_size);
+  }
+
+  std::unique_ptr<prach_detector_validator> create_validator() override { return inner_factory->create_validator(); }
+
+private:
+  std::shared_ptr<prach_detector_factory>  inner_factory;
+  std::shared_ptr<prach_generator_factory> gen_factory;
+  prach_detector_factory_sw_configuration  config;
+};
+
+} // namespace
+#endif
+
+std::shared_ptr<prach_detector_factory>
+ocudu::create_prach_detector_factory_gpu(std::shared_ptr<dft_processor_factory>         dft_factory,
+                                         std::shared_ptr<prach_generator_factory>       prach_gen_factory,
+                                         const prach_detector_factory_sw_configuration& config)
+{
+#ifdef HAVE_DFT_GPU
+  if (!dft_factory || !prach_gen_factory) {
+    return nullptr;
+  }
+  std::shared_ptr<prach_detector_factory> inner =
+      create_prach_detector_factory_sw(dft_factory, prach_gen_factory, config);
+  if (!inner) {
+    return nullptr;
+  }
+  return std::make_shared<prach_detector_gpu_factory_impl>(std::move(inner), std::move(prach_gen_factory), config);
+#else
+  (void)dft_factory;
+  (void)prach_gen_factory;
+  (void)config;
+  return nullptr;
+#endif
 }
 
 std::shared_ptr<prach_generator_factory> ocudu::create_prach_generator_factory_sw()

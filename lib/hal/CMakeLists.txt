@@ -2,5 +2,11 @@
 # SPDX-License-Identifier: BSD-3-Clause-Open-MPI
 
 
-add_subdirectory(dpdk)
-add_subdirectory(phy)
+if (DPDK_FOUND)
+    add_subdirectory(dpdk)
+    add_subdirectory(phy)
+endif ()
+
+if (ENABLE_DFT_GPU)
+    add_subdirectory(cuda)
+endif ()

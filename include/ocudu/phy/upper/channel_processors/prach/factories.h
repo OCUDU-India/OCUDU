@@ -37,6 +37,11 @@ create_prach_detector_factory_sw(std::shared_ptr<dft_processor_factory>         
 std::shared_ptr<prach_detector_factory>
 create_prach_detector_pool_factory(std::shared_ptr<prach_detector_factory> factory, unsigned nof_concurrent_threads);
 
+std::shared_ptr<prach_detector_factory>
+create_prach_detector_factory_gpu(std::shared_ptr<dft_processor_factory>         dft_factory,
+                                  std::shared_ptr<prach_generator_factory>       prach_gen_factory,
+                                  const prach_detector_factory_sw_configuration& config = {});
+
 class prach_generator_factory
 {
 public:
